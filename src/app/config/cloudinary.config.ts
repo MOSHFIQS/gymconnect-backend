@@ -1,87 +1,95 @@
 import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
-import status from "http-status";
-import AppError from "../errorHelpers/AppError";
-import { envVars } from "./env";
+import streamifier from "streamifier";
+import { envVars } from "./env.js";
 
+// Cloudinary configuration
 cloudinary.config({
-    cloud_name: envVars.CLOUDINARY.CLOUDINARY_CLOUD_NAME,
-    api_key: envVars.CLOUDINARY.CLOUDINARY_API_KEY,
-    api_secret: envVars.CLOUDINARY.CLOUDINARY_API_SECRET,
-})
+  cloud_name: envVars.CLOUDINARY_CLOUD_NAME,
+  api_key: envVars.CLOUDINARY_API_KEY,
+  api_secret: envVars.CLOUDINARY_API_SECRET,
+});
 
-export const uploadFileToCloudinary = async (
-    buffer : Buffer,
-    fileName: string,
-) : Promise<UploadApiResponse> =>{
+export default cloudinary;
 
-    if(!buffer || !fileName) {
-        throw new AppError(status.BAD_REQUEST, "File buffer and file name are required for upload");
-    }
+export type CloudinaryFolder = "gym/profiles" | "gym/documents";
 
-    const extension = fileName.split(".").pop()?.toLocaleLowerCase();
-
-    const fileNameWithoutExtension = fileName
-        .split(".")
-        .slice(0, -1)
-        .join(".")
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        // eslint-disable-next-line no-useless-escape
-        .replace(/[^a-z0-9\-]/g, "");
-
-    const uniqueName =
-        Math.random().toString(36).substring(2) +
-        "-" +
-        Date.now() +
-        "-" +
-        fileNameWithoutExtension;
-
-    const folder = extension === "pdf" ? "pdfs" : "images";
-
-
-    return new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream(
-            {
-                resource_type: "auto",
-                public_id: `planora/${folder}/${uniqueName}`,
-                folder : `planora/${folder}`,
-            },
-            (error, result) => {
-                if(error){
-                    return reject(new AppError(status.INTERNAL_SERVER_ERROR, "Failed to upload file to Cloudinary"));
-                }
-                resolve(result as UploadApiResponse);
-            }
-        ).end(buffer);
-    })
-
-
-}
-
-export const deleteFileFromCloudinary = async (url : string) => {
-
-    try {
-        const regex = /\/v\d+\/(.+?)(?:\.[a-zA-Z0-9]+)+$/;
-
-        const match = url.match(regex);
-
-        if (match && match[1]) {
-            const publicId = match[1];
-
-            await cloudinary.uploader.destroy(
-                publicId, {
-                resource_type: "image"
-            }
-            )
-
-            // console.log(`File ${publicId} deleted from cloudinary`);
+/**
+ * Upload buffer file to Cloudinary
+ * Works with multer memoryStorage
+ */
+export const uploadToCloudinary = (
+  buffer: Buffer,
+  folder: CloudinaryFolder = "gym/profiles",
+  publicId?: string
+): Promise<UploadApiResponse> => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        overwrite: true,
+        resource_type: "image",
+        transformation: [
+          {
+            width: 400,
+            height: 400,
+            crop: "fill",
+            gravity: "face",
+          },
+          {
+            quality: "auto",
+            fetch_format: "auto",
+          },
+        ],
+      },
+      (error, result) => {
+        if (error) {
+          return reject(error);
         }
 
-    } catch (error) {
-        console.error("Error deleting file from Cloudinary:", error);
-        throw new AppError(status.INTERNAL_SERVER_ERROR, "Failed to delete file from Cloudinary");
-    }
-}
+        if (!result) {
+          return reject(
+            new Error("Cloudinary upload returned empty result")
+          );
+        }
 
+        resolve(result);
+      }
+    );
 
-export const cloudinaryUpload = cloudinary;
+    // Convert buffer into stream and upload
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+};
+
+/**
+ * Delete file from Cloudinary
+ */
+export const deleteFromCloudinary = async (
+  publicId: string
+): Promise<void> => {
+  await cloudinary.uploader.destroy(publicId);
+};
+
+/**
+ * Extract public_id from Cloudinary URL
+ *
+ * Example:
+ * https://res.cloudinary.com/demo/image/upload/v123/gym/profiles/test.jpg
+ *
+ * Returns:
+ * gym/profiles/test
+ */
+export const extractPublicId = (url: string): string => {
+  const afterUpload = url.split("/upload/")[1];
+
+  if (!afterUpload) {
+    return "";
+  }
+
+  // Remove version part like v123456/
+  const withoutVersion = afterUpload.replace(/^v\d+\//, "");
+
+  // Remove file extension
+  return withoutVersion.replace(/\.[^/.]+$/, "");
+};

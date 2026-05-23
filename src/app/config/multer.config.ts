@@ -1,39 +1,29 @@
 import multer from "multer";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
-import { cloudinaryUpload } from "./cloudinary.config";
 
-const storage = new CloudinaryStorage({
-    cloudinary: cloudinaryUpload,
-    params: async (req, file) => {
-        const originalName = file.originalname;
-        const extension = originalName.split(".").pop()?.toLocaleLowerCase();
+// Use memoryStorage — file goes to RAM as a Buffer,
+// then we stream it straight to Cloudinary. No disk writes needed.
+const storage = multer.memoryStorage();
 
-        const fileNameWithoutExtension = originalName
-            .split(".")
-            .slice(0, -1)
-            .join(".")
-            .toLowerCase()
-            .replace(/\s+/g, "-")
-            // eslint-disable-next-line no-useless-escape
-            .replace(/[^a-z0-9\-]/g, "");
+const fileFilter = (
+  _req: Express.Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+  ];
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPEG, PNG, and WebP images are allowed"));
+  }
+};
 
-        const uniqueName =
-            Math.random().toString(36).substring(2)+
-            "-"+
-            Date.now()+
-            "-"+
-            fileNameWithoutExtension;
-
-        const folder = extension === "pdf" ? "pdfs" : "images";
-
-
-        return {
-            folder : `planora/${folder}`,
-            public_id: uniqueName,
-            resource_type : "auto"
-        }
-    }
-
-})
-
-export const multerUpload = multer({storage})
+export const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+});
