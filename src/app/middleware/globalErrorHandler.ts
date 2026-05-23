@@ -1,0 +1,69 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { NextFunction, Request, Response } from "express";
+import status from "http-status";
+import { ZodError } from "zod";
+import { Prisma } from "@prisma/client";
+import { envVars } from "../config/env.js";
+import AppError from "../errorHelpers/AppError.js";
+import {
+  handlePrismaClientKnownRequestError,
+  handlePrismaClientValidationError,
+} from "../errorHelpers/handlePrismaErrors.js";
+import { handleZodError } from "../errorHelpers/handleZodError.js";
+import { TErrorResponse, TErrorSources } from "../interfaces/error.interface.js";
+
+export const globalErrorHandler = (
+  err: any,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if (envVars.NODE_ENV === "development") {
+    console.log("Error from Global Error Handler:", err);
+  }
+
+  let errorSources: TErrorSources[] = [];
+  let statusCode: number = status.INTERNAL_SERVER_ERROR;
+  let message: string = "Internal Server Error";
+  let stack: string | undefined = undefined;
+
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    const simplified = handlePrismaClientKnownRequestError(err);
+    statusCode = (simplified as any).statusCode;
+    message = simplified.message;
+    errorSources = [...simplified.errorSources];
+    stack = err.stack;
+  } else if (err instanceof Prisma.PrismaClientValidationError) {
+    const simplified = handlePrismaClientValidationError(err);
+    statusCode = (simplified as any).statusCode;
+    message = simplified.message;
+    errorSources = [...simplified.errorSources];
+    stack = err.stack;
+  } else if (err instanceof ZodError) {
+    const simplified = handleZodError(err);
+    statusCode = (simplified as any).statusCode;
+    message = simplified.message;
+    errorSources = [...simplified.errorSources];
+    stack = err.stack;
+  } else if (err instanceof AppError) {
+    statusCode = err.statusCode;
+    message = err.message;
+    stack = err.stack;
+    errorSources = [{ path: "", message: err.message }];
+  } else if (err instanceof Error) {
+    statusCode = status.INTERNAL_SERVER_ERROR;
+    message = err.message;
+    stack = err.stack;
+    errorSources = [{ path: "", message: err.message }];
+  }
+
+  const errorResponse: TErrorResponse = {
+    success: false,
+    message,
+    errorSources,
+    error: envVars.NODE_ENV === "development" ? err : undefined,
+    stack: envVars.NODE_ENV === "development" ? stack : undefined,
+  };
+
+  res.status(statusCode).json(errorResponse);
+};
