@@ -3,8 +3,8 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 import status from "http-status";
 import AppError from "../errorHelpers/AppError.js";
 import { envVars } from "../config/env.js";
-import prisma from "../config/prisma.js";
-import { Role } from "@prisma/client";
+import { Role } from "../../generated/prisma/enums.js";
+import { prisma } from "../lib/prisma.js";
 
 declare global {
   namespace Express {
