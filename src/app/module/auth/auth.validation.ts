@@ -1,0 +1,20 @@
+import { z } from "zod";
+
+export const signupSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z
+    .string()
+    .min(6, "Password must be at least 6 characters")
+//     .regex(
+//       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+//       "Password must contain uppercase, lowercase and number"
+//     ),
+});
+
+export const signinSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export type SignupInput = z.infer<typeof signupSchema>;
+export type SigninInput = z.infer<typeof signinSchema>;
