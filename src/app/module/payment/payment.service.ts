@@ -149,7 +149,7 @@ const getAllPayments = async (options: GetAllPaymentsOptions) => {
       take: limit,
       orderBy: { createdAt: "desc" },
       include: {
-        member: { select: { fullName: true, email: true, phone: true, membershipPlan: true } },
+        member: { select: { fullName: true, email: true, phone: true, membershipPlan: true, profileImage: true } },
         user: { select: { email: true } },
       },
     }),
