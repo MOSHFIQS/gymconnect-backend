@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PaymentMethod } from "../../../generated/prisma/enums";
 
 export const submitPaymentSchema = z.object({
-  memberId: z.string().uuid("Invalid member ID"),
+  memberId: z.string().uuid("Invalid member ID").optional(),
   transactionId: z.string().min(4, "Transaction ID is required"),
   amount: z.number().positive("Amount must be positive"),
   method: z.nativeEnum(PaymentMethod),

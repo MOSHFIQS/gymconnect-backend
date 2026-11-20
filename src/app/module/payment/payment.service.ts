@@ -29,11 +29,22 @@ const getPaymentDetails = () => {
 };
 
 const submitPayment = async (userId: string, data: SubmitPaymentInput) => {
-  // Verify member belongs to this user
-  const member = await prisma.member.findUnique({
-    where: { id: data.memberId },
-  });
-  if (!member) throw new AppError(status.NOT_FOUND, "Member not found");
+  // Find member profile by memberId if provided, or by userId
+  let member = null;
+  if (data.memberId) {
+    member = await prisma.member.findUnique({
+      where: { id: data.memberId },
+    });
+  } else {
+    member = await prisma.member.findUnique({
+      where: { userId },
+    });
+  }
+
+  if (!member) {
+    throw new AppError(status.NOT_FOUND, "Member profile not found. Please complete your registration first.");
+  }
+
   if (member.userId !== userId) {
     throw new AppError(status.FORBIDDEN, "Forbidden: Not your member profile");
   }
@@ -48,12 +59,15 @@ const submitPayment = async (userId: string, data: SubmitPaymentInput) => {
 
   const payment = await prisma.payment.create({
     data: {
-      memberId: data.memberId,
+      memberId: member.id,
       userId,
       transactionId: data.transactionId,
       amount: data.amount,
       method: data.method,
       status: PaymentStatus.PENDING,
+    },
+    include: {
+      member: { select: { fullName: true, membershipPlan: true } },
     },
   });
 
@@ -99,8 +113,14 @@ const verifyPayment = async (
 };
 
 const getMyPayments = async (userId: string) => {
+  const member = await prisma.member.findUnique({ where: { userId } });
   return prisma.payment.findMany({
-    where: { userId },
+    where: {
+      OR: [
+        { userId },
+        ...(member ? [{ memberId: member.id }] : []),
+      ],
+    },
     orderBy: { createdAt: "desc" },
     include: {
       member: { select: { fullName: true, membershipPlan: true } },
