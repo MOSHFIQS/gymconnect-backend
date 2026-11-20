@@ -1,349 +1,280 @@
-# Planora — Backend API
+# 🏋️‍♂️ GymConnect — Backend REST API
 
-> Production-ready REST API for the Planora event management platform. Handles authentication, role-based authorization, event lifecycle, Stripe payments, QR ticketing, and more.
-
-**Live API:** https://planora-backend-1.vercel.app  
-**Frontend Repo:** https://github.com/MOSHFIQS/PLANORA-FRONTEND  
-**Backend Repo:** https://github.com/MOSHFIQS/PLANORA-BACKEND
+> High-performance, modular REST API powering the **GymConnect** ecosystem. Built with **Node.js 20+ (ES Modules)**, **Express 5**, **TypeScript**, and **Prisma ORM 7** connected to a **PostgreSQL** database. Handles authentication, role-based access control, member profile lifecycle, manual payment verification, attendance check-ins, curated workout routines, and administrative management.
 
 ---
 
-## Table of Contents
+## 📑 Table of Contents
 
-- [Overview](#overview)
-- [Role System](#role-system)
-- [Tech Stack](#tech-stack)
-- [Core Features](#core-features)
-- [Database Models](#database-models)
-- [API Reference](#api-reference)
-- [Getting Started](#getting-started)
+- [Overview & Architecture](#overview--architecture)
+- [Database Models (Prisma Schema)](#database-models-prisma-schema)
+- [Role-Based Access Control](#role-based-access-control)
+- [Complete API Endpoint Reference](#complete-api-endpoint-reference)
+  - [1. Authentication Module (`/api/v1/auth`)](#1-authentication-module-apiv1auth)
+  - [2. Members Module (`/api/v1/members`)](#2-members-module-apiv1members)
+  - [3. Payments Module (`/api/v1/payments`)](#3-payments-module-apiv1payments)
+  - [4. Attendance & Check-in Module (`/api/v1/attendance`)](#4-attendance--check-in-module-apiv1attendance)
+  - [5. Workout Routines & Logs Module (`/api/v1/workouts`)](#5-workout-routines--logs-module-apiv1workouts)
+  - [6. Notices & Announcements Module (`/api/v1/notices`)](#6-notices--announcements-module-apiv1notices)
+  - [7. Admin Operations Module (`/api/v1/admin`)](#7-admin-operations-module-apiv1admin)
+- [Automatic Database Seeding](#automatic-database-seeding)
 - [Environment Variables](#environment-variables)
+- [Local Setup & Deployment](#local-setup--deployment)
 
 ---
 
-## Overview
+## 🏗️ Overview & Architecture
 
-Planora Backend is a Node.js/Express REST API powering the Planora event management platform. It provides secure JWT-based authentication, full CRUD for events, a Stripe payment & webhook pipeline, unique-QR ticket generation, and role-gated endpoints for Users, Organizers, Admins, and Super Admins.
+The GymConnect Backend API is structured cleanly around feature-driven modules with strict separation of concerns:
+
+```text
+gymconnect-backend/
+├── prisma/
+│   └── schema/schema.prisma     # Prisma Models, Enums & Relations
+├── src/
+│   ├── app/
+│   │   ├── config/              # envVars, Cloudinary, Multer configurations
+│   │   ├── errorHelpers/        # AppError, Prisma & Zod error handlers
+│   │   ├── middleware/          # checkAuth, globalErrorHandler, notFound
+│   │   ├── module/
+│   │   │   ├── admin/           # Dashboard stats, user management, member approval
+│   │   │   ├── attendance/      # Check-in logging, monthly streak, attendance stats
+│   │   │   ├── auth/            # Signin, signup, getMe, password change
+│   │   │   ├── member/          # Profile CRUD, Cloudinary upload, query builder
+│   │   │   ├── notice/          # Gym announcements & notices CRUD
+│   │   │   ├── payment/         # Gateway details, payment submission, admin verification
+│   │   │   └── workout/         # Curated routines & workout completion logging
+│   │   ├── routes/              # Central router mounting all modules
+│   │   ├── shared/              # catchAsync, sendResponse helpers
+│   │   └── utils/               # Admin seed, JWT generate/verify, cookie helpers
+│   ├── app.ts                   # Express application setup, CORS, body parsers
+│   ├── index.ts                 # Vercel serverless entry point
+│   └── server.ts                # HTTP server listener & graceful shutdown handlers
+├── vercel.json                  # Vercel serverless deployment config
+└── package.json
+```
 
 ---
 
-## Role System
+## 🗄️ Database Models (Prisma Schema)
 
-| Role | Registered By | Permissions |
-|---|---|---|
-| **USER** | Self (public register) | Join events, manage own profile, view tickets, accept/decline invitations |
-| **ORGANIZER** | Self (public register) | All USER permissions + create/edit/delete own events, send private invitations, validate tickets via QR scan |
-| **ADMIN** | Super Admin only | Manage users (view, suspend, soft-delete) |
-| **SUPER_ADMIN** | Super Admin only | All ADMIN permissions + manage admins, create ADMIN and SUPER_ADMIN accounts |
+The database schema manages members, users, transactions, attendance, notices, and workout logs:
 
-> The initial Super Admin account is seeded via environment variables (`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD`).
+### 1. `User`
+- `id` (UUID, Primary Key)
+- `email` (Unique string)
+- `password` (Bcrypt hashed)
+- `role` (Enum: `ADMIN`, `MEMBER`)
+- `isActive` (Boolean, default: `true`)
+- Relations: One-to-One with `Member`, One-to-Many with `Payment`
+
+### 2. `Member`
+- `id` (UUID, Primary Key)
+- `userId` (Unique foreign key to `User`)
+- `fullName`, `email`, `phone`, `gender` (`MALE`, `FEMALE`, `OTHER`)
+- `dateOfBirth`, `address`, `emergencyContact`
+- `membershipPlan` (`MONTHLY`, `QUARTERLY`, `HALF_YEARLY`, `YEARLY`)
+- `joiningDate` (DateTime)
+- `profileImage` (Cloudinary URL string)
+- `status` (Enum: `PENDING`, `ACTIVE`, `INACTIVE`)
+- Relations: One-to-Many with `Payment`, `Attendance`, `WorkoutLog`
+
+### 3. `Payment`
+- `id` (UUID, Primary Key)
+- `memberId` (Foreign key to `Member`)
+- `userId` (Foreign key to `User`)
+- `transactionId` (Unique string)
+- `amount` (Float)
+- `method` (Enum: `BKASH`, `NAGAD`, `BANK_TRANSFER`)
+- `status` (Enum: `PENDING`, `APPROVED`, `REJECTED`)
+- `adminNote` (Optional string)
+- `verifiedAt` (DateTime)
+
+### 4. `Notice`
+- `id` (UUID, Primary Key)
+- `title`, `content` (String)
+- `category` (String: `GENERAL`, `OFFER`, `EVENT`, `MAINTENANCE`)
+- `priority` (String: `NORMAL`, `HIGH`, `URGENT`)
+- `isActive` (Boolean)
+
+### 5. `Attendance`
+- `id` (UUID, Primary Key)
+- `memberId` (Foreign key to `Member`)
+- `checkInDate` (DateTime, default: `now()`)
+- `notes` (String)
+
+### 6. `WorkoutLog`
+- `id` (UUID, Primary Key)
+- `memberId` (Foreign key to `Member`)
+- `routineName`, `notes` (String)
+- `completedAt` (DateTime, default: `now()`)
 
 ---
 
-## Tech Stack
+## 🔐 Role-Based Access Control
 
-| Layer | Technology |
+Endpoints are protected by the `checkAuth(...roles)` middleware, which decodes the JWT and validates user status:
+
+| Role | Capabilities |
 |---|---|
-| Runtime | Node.js 20 (ESM) |
-| Framework | Express.js v5 |
-| Language | TypeScript |
-| Database | PostgreSQL (Neon serverless) |
-| ORM | Prisma v7 |
-| Auth | JWT (Access + Refresh Tokens) + Better Auth |
-| Payments | Stripe (Charges + Webhooks) |
-| Image Storage | Cloudinary |
-| Email | Nodemailer (SMTP / Gmail) |
-| PDF | PDFKit (invoice generation) |
-| Validation | Zod v4 |
-| Build | tsup |
+| **Public / Visitor** | Read landing details, view notices, view curated workout splits, calculate BMI |
+| **MEMBER** | Create/view own profile, submit payments, check-in to gym, log workouts, view member VIP pass |
+| **ADMIN** | Executive KPI dashboard, approve/reject payments, approve members, create/manage users, create notices, export data to CSV |
 
 ---
 
-## Core Features
+## 📡 Complete API Endpoint Reference
 
-### Authentication & Security
-- JWT access token (1d) + refresh token (7d) rotation
-- Better Auth session layer (OAuth-ready)
-- Secure HttpOnly cookie handling
-- Role-based middleware guards on every protected endpoint
-- Soft delete — user data is never hard-deleted
+### 1. Authentication Module (`/api/v1/auth`)
 
-### User Management
-- Register as USER or ORGANIZER
-- Profile image upload via Cloudinary
-- Admin can list, suspend, and soft-delete users
-- Super Admin can list, suspend, and soft-delete both users and admins
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/signup` | Public | Register a new user (`email`, `password`) |
+| `POST` | `/signin` | Public | Login with email and password (returns JWT & sets cookie) |
+| `POST` | `/signout` | Authenticated | Clears auth token cookie |
+| `GET` | `/me` | `MEMBER`, `ADMIN` | Get authenticated user profile with full member details |
+| `PATCH` | `/change-password` | `MEMBER`, `ADMIN` | Update account password with old password verification |
 
-### Event Management
-- Full CRUD for events (Organizer-scoped)
-- **Public events** — visible to all; any authenticated user can join
-- **Private events** — hidden from browse; Organizer sends targeted invitations to previous participants only
-- Online & Offline event types
-- Featured event flagging
-- Category-based organization
-- Banner image support
+### 2. Members Module (`/api/v1/members`)
 
-### Participation & Invitations
-- Join free events instantly
-- Invitation-only flow for private events (accept / decline)
-- Participation status tracking (PENDING → APPROVED / REJECTED)
-- Organizer approval flow for gated events
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/` | `MEMBER`, `ADMIN` | Submit member registration form (supports multipart image upload) |
+| `GET` | `/me` | `MEMBER`, `ADMIN` | Get logged-in user's member profile |
+| `GET` | `/` | `ADMIN` | Get paginated members list with search, status, and plan filters |
+| `GET` | `/:id` | `MEMBER`, `ADMIN` | Get member details by ID |
+| `PATCH` | `/:id` | `MEMBER`, `ADMIN` | Update member details and profile image |
+| `DELETE` | `/:id` | `ADMIN` | Delete member profile |
 
-### Payment System
-- Stripe Checkout session creation for paid events
-- Stripe Webhook listener for payment confirmation
-- Payment status tracking (PENDING → PAID → FAILED)
-- PDF invoice generation with PDFKit, emailed on successful payment
+### 3. Payments Module (`/api/v1/payments`)
 
-### Ticket System
-- Unique QR-code generated per participation upon payment/join
-- Ticket validation endpoint (Organizer only, scoped to own events)
-- Check-in status updated on scan
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/details` | Public | Get bKash, Nagad, and Bank transfer merchant account details |
+| `GET` | `/my` | `MEMBER`, `ADMIN` | Get transaction history for logged-in member |
+| `GET` | `/` | `ADMIN` | Get all payments with status/method filters |
+| `GET` | `/:id` | `MEMBER`, `ADMIN` | Get single payment by ID |
+| `POST` | `/` | `MEMBER`, `ADMIN` | Submit transaction payment (`memberId`, `amount`, `method`, `transactionId`) |
+| `PATCH` | `/:id/verify` | `ADMIN` | Approve or reject payment (`status`, `adminNote`). Approving activates member! |
 
-### Reviews
-- One review per user per event (enforced at DB level)
-- Star rating + comment
-- Aggregate rating computed per event
+### 4. Attendance & Check-in Module (`/api/v1/attendance`)
 
-### Notifications
-- Email confirmations on registration, payment, and invitation via Nodemailer
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/check-in` | `MEMBER`, `ADMIN` | Log daily gym check-in (validates active status, prevents duplicate within 8h) |
+| `GET` | `/my` | `MEMBER`, `ADMIN` | Get member's check-in history, total count, and monthly streak |
+| `GET` | `/stats` | `ADMIN` | Get daily check-in volume and recent attendee list |
+
+### 5. Workout Routines & Logs Module (`/api/v1/workouts`)
+
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/routines` | Public / Member | Get curated Push/Pull/Legs/HIIT workout splits with exercise guides |
+| `POST` | `/log` | `MEMBER`, `ADMIN` | Log a completed workout routine session |
+| `GET` | `/my-logs` | `MEMBER`, `ADMIN` | Get member's completed workout logs and history count |
+
+### 6. Notices & Announcements Module (`/api/v1/notices`)
+
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/` | Public / Member | Get active gym notices (sorted by priority & date) |
+| `POST` | `/` | `ADMIN` | Create a new notice (`title`, `content`, `category`, `priority`) |
+| `PATCH` | `/:id` | `ADMIN` | Update notice content or toggle active status |
+| `DELETE` | `/:id` | `ADMIN` | Remove notice |
+
+### 7. Admin Operations Module (`/api/v1/admin`)
+
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/dashboard` | `ADMIN` | Get KPI metrics: total members, active/pending counts, revenue totals |
+| `GET` | `/users` | `ADMIN` | Get all registered users |
+| `GET` | `/users/:id` | `ADMIN` | Get single user by ID |
+| `POST` | `/users` | `ADMIN` | Create a new Admin user account |
+| `PATCH` | `/users/:id/role` | `ADMIN` | Change user role between `MEMBER` and `ADMIN` |
+| `PATCH` | `/users/:id/toggle-active` | `ADMIN` | Suspend or reactivate user login |
+| `DELETE` | `/users/:id` | `ADMIN` | Delete user account |
+| `PATCH` | `/members/:memberId/approve` | `ADMIN` | 1-Click activate member status |
 
 ---
 
-## Database Models
+## ⚡ Automatic Database Seeding
 
+When the server starts (`pnpm dev` or `node dist/server.js`), the `seedAdmin()` utility checks if an Admin user exists matching `ADMIN_EMAIL`. If not, it automatically creates the root Admin account with hashed credentials:
+
+- **Email**: Defined in `ADMIN_EMAIL` (default: `admin@gym.com`)
+- **Password**: Defined in `ADMIN_PASSWORD` (default: `Admin@123`)
+- **Role**: `ADMIN`
+
+---
+
+## ⚙️ Environment Variables
+
+Create a `.env` file in the `gymconnect-backend` directory:
+
+```env
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+
+# Database Connection URL (PostgreSQL)
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/gym_management?schema=public"
+
+# Frontend Client URL (CORS Allowed Origins)
+FRONTEND_URL="http://localhost:3000"
+
+# JWT Authentication
+JWT_SECRET="gym_connect_super_secret_jwt_key_2025_secure_and_random"
+JWT_EXPIRES_IN="7d"
+BCRYPT_SALT_ROUNDS=12
+
+# Admin Default Seed Credentials
+ADMIN_EMAIL="admin@gym.com"
+ADMIN_PASSWORD="Admin@123"
+
+# Payment Details
+BKASH_MERCHANT_NUMBER="01XXXXXXXXXX"
+NAGAD_MERCHANT_NUMBER="01XXXXXXXXXX"
+BANK_NAME="Dutch-Bangla Bank"
+BANK_ACCOUNT="1234567890"
+BANK_ROUTING="090261001"
+
+# Cloudinary Storage
+CLOUDINARY_CLOUD_NAME="your_cloudinary_cloud_name"
+CLOUDINARY_API_KEY="your_cloudinary_api_key"
+CLOUDINARY_API_SECRET="your_cloudinary_api_secret"
+
+# Email Configuration (SMTP)
+EMAIL_SENDER_SMTP_HOST="smtp.gmail.com"
+EMAIL_SENDER_SMTP_PORT="465"
+EMAIL_SENDER_SMTP_USER="your_email@gmail.com"
+EMAIL_SENDER_SMTP_PASS="your_email_app_password"
+EMAIL_SENDER_SMTP_FROM="noreply@gym.com"
 ```
-User
- ├── id, name, email, passwordHash, role, status, image, isDeleted
- └── relations → Participation, Invitation, Payment, Ticket, Review, Session
-
-Event
- ├── id, title, description, type (ONLINE/OFFLINE), visibility (PUBLIC/PRIVATE)
- ├── isFeatured, isPaid, price, capacity, date, location, image
- ├── categoryId, organizerId
- └── relations → Participation, Invitation, Payment, Ticket, Review
-
-Category
- └── id, name, slug
-
-Participation
- └── id, userId, eventId, status (PENDING/APPROVED/REJECTED)
-
-Invitation
- └── id, userId, eventId, status (PENDING/ACCEPTED/DECLINED)
-
-Payment
- └── id, userId, eventId, stripeSessionId, amount, status (PENDING/PAID/FAILED)
-
-Ticket
- └── id, userId, eventId, qrCode (unique), isUsed, usedAt
-
-Review
- └── id, userId, eventId, rating, comment  [unique: userId+eventId]
-
-Banner
- └── id, image, link, isActive
-
-Session / Account
- └── Better Auth managed session tables
-```
 
 ---
 
-## API Reference
+## 🚀 Local Setup & Deployment
 
-Base URL: `https://planora-backend-1.vercel.app/api/v1`
-
-### Auth
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/auth/register` | Public | Register USER or ORGANIZER |
-| POST | `/auth/login` | Public | Login, returns access + refresh tokens |
-| POST | `/auth/refresh-token` | Public | Rotate access token |
-| POST | `/auth/logout` | Auth | Invalidate session |
-
-### Users
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | `/users` | Admin / Super Admin | List all users |
-| GET | `/users/:id` | Auth | Get user profile |
-| PATCH | `/users/:id` | Owner | Update profile |
-| DELETE | `/users/:id` | Admin / Super Admin | Soft delete user |
-
-### Admins
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/admins` | Super Admin | Create ADMIN or SUPER_ADMIN |
-| GET | `/admins` | Super Admin | List all admins |
-| DELETE | `/admins/:id` | Super Admin | Soft delete admin |
-
-### Events
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | `/events` | Public | List all public events |
-| GET | `/events/:id` | Public | Event detail |
-| POST | `/events` | Organizer | Create event |
-| PATCH | `/events/:id` | Organizer (owner) | Update event |
-| DELETE | `/events/:id` | Organizer (owner) | Delete event |
-
-### Participation
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/participations` | User | Join a public event |
-| GET | `/participations/my` | User | My participations |
-| PATCH | `/participations/:id` | Organizer | Approve / reject |
-
-### Invitations
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/invitations` | Organizer | Send invitation to past participant |
-| GET | `/invitations/my` | User | My invitations |
-| PATCH | `/invitations/:id` | User | Accept / decline |
-
-### Payments
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/payments/checkout` | User | Create Stripe checkout session |
-| POST | `/payments/webhook` | Stripe | Handle payment webhook |
-| GET | `/payments/my` | User | My payment history |
-
-### Tickets
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | `/tickets/my` | User | My tickets with QR codes |
-| POST | `/tickets/validate` | Organizer (own event) | Scan & validate QR ticket |
-
-### Reviews
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | `/reviews` | User (attended) | Submit review |
-| GET | `/reviews/event/:id` | Public | Get reviews for event |
-
-### Categories & Banners
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | `/categories` | Public | List categories |
-| POST | `/categories` | Admin | Create category |
-| GET | `/banners` | Public | Active banners |
-| POST | `/banners` | Admin | Create banner |
-
----
-
-## Getting Started
-
-### Prerequisites
-- Node.js 20+
-- pnpm
-- PostgreSQL database (Neon recommended)
-- Stripe account
-- Cloudinary account
-- Gmail app password for SMTP
-
-### Installation
-
+### 1. Install Dependencies
 ```bash
-git clone https://github.com/MOSHFIQS/PLANORA-BACKEND
-cd PLANORA-BACKEND
 pnpm install
 ```
 
-### Database Setup
-
+### 2. Generate Prisma Client & Sync Database
 ```bash
-pnpm run push        # Push schema to database
-pnpm run generate    # Generate Prisma client
+pnpm prisma generate
+pnpm prisma db push
 ```
 
-> The Super Admin account is auto-seeded on first run using `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD`.
-
-### Development
-
+### 3. Run Development Server
 ```bash
-pnpm run dev
+pnpm dev
 ```
+The server will start on [http://localhost:5000](http://localhost:5000) and automatically seed the initial admin account.
 
-API runs at `http://localhost:5000`
-
-### Build & Production
-
+### 4. Build for Production
 ```bash
-pnpm run build
-pnpm run start
+pnpm build
+pnpm start
 ```
-
-### Stripe Webhook (local development)
-
-```bash
-pnpm run stripe:webhook
-```
-
----
-
-## Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-NODE_ENV=development
-PORT=5000
-
-# Database
-DATABASE_URL="postgresql://user:password@host/planora?sslmode=require"
-
-# Better Auth
-BETTER_AUTH_SECRET=your_better_auth_secret
-BETTER_AUTH_URL=http://localhost:5000
-BETTER_AUTH_SESSION_TOKEN_EXPIRES_IN=1d
-BETTER_AUTH_SESSION_TOKEN_UPDATE_AGE=1d
-
-# JWT
-ACCESS_TOKEN_SECRET=your_access_secret
-REFRESH_TOKEN_SECRET=your_refresh_secret
-ACCESS_TOKEN_EXPIRES_IN=1d
-REFRESH_TOKEN_EXPIRES_IN=7d
-
-# App
-FRONTEND_URL=http://localhost:3000
-
-# Stripe
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-
-# Google
-GOOGLE_CLIENT_ID=1055659962008-o7kmcel8qr.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-pzWCnBW3LF3fO9ir
-GOOGLE_CALLBACK_URL=https://planora-backend-1.vercel.app/api/v1/auth/callback/google
-
-# Email (Gmail SMTP)
-EMAIL_SENDER_SMTP_HOST=smtp.gmail.com
-EMAIL_SENDER_SMTP_PORT=465
-EMAIL_SENDER_SMTP_USER=your_email@gmail.com
-EMAIL_SENDER_SMTP_PASS=your_app_password
-EMAIL_SENDER_SMTP_FROM=your_email@gmail.com
-
-# Seed
-SUPER_ADMIN_EMAIL=admin@gmail.com
-SUPER_ADMIN_PASSWORD=your_super_admin_password
-```
-
----
-
-## Scripts
-
-```bash
-pnpm run dev             # Start dev server with hot reload (tsx watch)
-pnpm run build           # Compile TypeScript + generate Prisma client
-pnpm run start           # Start compiled production server
-pnpm run migrate         # Run Prisma migrations
-pnpm run push            # Push schema directly to database
-pnpm run pull            # Pull schema from database
-pnpm run generate        # Regenerate Prisma client
-pnpm run studio          # Open Prisma Studio
-pnpm run stripe:webhook  # Forward Stripe webhooks to local server
-pnpm run lint            # Lint source files
-```
+The build process compiles TypeScript with `tsup` into the `api` directory, ready for standard Node.js servers or Vercel serverless deployment via `vercel.json`.
