@@ -27,4 +27,13 @@ export const envVars = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME as string,
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY as string,
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET as string,
+
+  // Email
+  EMAIL_SENDER: {
+    SMTP_HOST: process.env.EMAIL_SENDER_SMTP_HOST || "smtp.gmail.com",
+    SMTP_PORT: process.env.EMAIL_SENDER_SMTP_PORT || "465",
+    SMTP_USER: process.env.EMAIL_SENDER_SMTP_USER || "",
+    SMTP_PASS: process.env.EMAIL_SENDER_SMTP_PASS || "",
+    SMTP_FROM: process.env.EMAIL_SENDER_SMTP_FROM || "noreply@gym.com",
+  },
 };
